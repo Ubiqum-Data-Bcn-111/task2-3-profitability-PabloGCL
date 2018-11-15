@@ -47,7 +47,8 @@ set.seed(123)
 DecisionTree <- rpart(
   Volume ~ ., 
   data = existing, 
-  control = rpart.control(minsplit = 2))
+  control = rpart.control(minsplit = 2)
+  )
 
 par(xpd = NA, mar = rep(0.7, 4)) 
 plot(DecisionTree, compress = TRUE)
@@ -81,9 +82,13 @@ for(i in 1:ncol(training)){
   #            metric="Kappa", tuneLength=10, trControl=fitControl, 
   #           ntree=ntree)
   #key <- toString(ntree) 
-  LMmodel[[i]] <- LinearModel
+     
+    LMmodel[[i]] <- LinearModel
+    names(LMmodel)[i] <- colnames(existing[i])
 }
 }
+
+LMmodel
 
 LinearModel <- lm(Volume ~ ., existing)
 
