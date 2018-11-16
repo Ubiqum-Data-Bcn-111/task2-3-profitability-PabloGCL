@@ -120,3 +120,15 @@ par(mfrow=c(1, 2))  # divide graph area in 2 columns
 boxplot(cars$speed, main="Speed", sub=paste("Outlier rows: ", boxplot.stats(cars$speed)$out))  # box plot for 'speed'
 boxplot(cars$dist, main="Distance", sub=paste("Outlier rows: ", boxplot.stats(cars$dist)$out))  # box plot for 'distance'
 
+
+
+
+for (i in 13:ncol(existing)){
+  plot_ly( existing[i], main=paste('Boxplot of', colnames(existing[i]),'in regards to Volume'), type="box")
+  }
+plot_ly(type="box") %>%
+add_boxplot(y = existing[27], jitter = 0.3, pointpos = -1.8, boxpoints = 'all',
+            marker = list(color = 'rgb(7,40,89)'),
+            line = list(color = 'rgb(7,40,89)'),
+            name = "Boxplot of in regards to Volume") %>%
+  layout(title = "Box Plot Styling Outliers")
