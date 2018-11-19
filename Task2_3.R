@@ -2,8 +2,8 @@
 
 rm(list=ls(all=TRUE))
 
-pacman::p_load(caret, lattice, ggplot2, ModelMetrics, mlbench, RcppRoll, bindrcpp, backports, ddalpha, 
-               DEoptimR, dimRed, gower, readr, rpart, cellranger, rpart.plot, plotly, corrplot, dplyr)
+pacman::p_load(caret, lattice, ggplot2, ModelMetrics, mlbench, RcppRoll, bindrcpp, backports, ddalpha, DEoptimR, 
+               dimRed, gower, readr, rpart, cellranger, rpart.plot, plotly, corrplot, dplyr, randomForest, MASS, forestFloor)
 
 
 ################## Calling Documents #####################
@@ -11,10 +11,22 @@ pacman::p_load(caret, lattice, ggplot2, ModelMetrics, mlbench, RcppRoll, bindrcp
 setwd("C:/Users/Usuario/Desktop/Big Data/2.3") 
 
 OGexisting <- read_delim("existingproductattributes2017.2.csv",",", escape_double = FALSE, trim_ws = TRUE)
-View(OGexisting)
 
 OGnew <- read_delim("newproductattributes2017.2.csv",",", escape_double = FALSE, trim_ws = TRUE)
-View(OGnew)
+
+
+################ Product Size #####################
+
+OGexisting$ProductSize <- OGexisting$ProductHeight*OGexisting$ProductWidth*OGexisting$ProductDepth
+OGnew$ProductSize <- OGnew$ProductHeight*OGnew$ProductWidth*OGnew$ProductDepth
+
+OGexisting$ProductHeight <- NULL
+OGexisting$ProductWidth <- NULL
+OGexisting$ProductDepth <- NULL
+
+OGnew$ProductHeight <- NULL
+OGnew$ProductWidth <- NULL
+OGnew$ProductDepth <- NULL
 
 
 ################ Warranty & Rest ####################
@@ -22,17 +34,17 @@ View(OGnew)
 Warr <- filter(OGexisting, ProductType=="ExtendedWarranty")
 NoWarr <- filter(OGexisting, ProductType!="ExtendedWarranty")
 
+NewWarr <- filter(OGnew, ProductType=="ExtendedWarranty")
+NewNoWarr <- filter(OGnew, ProductType!="ExtendedWarranty")
+
 
 ################## Dummify the data ######################
 
 NoWarrDummy <- dummyVars(" ~ .", data = NoWarr)
 NoWarrDummy <- data.frame(predict(NoWarrDummy, newdata = NoWarr))
 
-newDummy <- dummyVars(" ~ .", data = OGnew)
-newDummy <- data.frame(predict(newDummy, newdata = OGnew))
-
-str(NoWarrDummy)
-str(newDummy)
+newDummy <- dummyVars(" ~ .", data = NewNoWarr)
+newDummy <- data.frame(predict(newDummy, newdata = NewNoWarr))
 
 
 ################## Correlation ###################
@@ -41,6 +53,7 @@ str(newDummy)
 NoWarrDummy$BestSellersRank <- NULL
 NoWarrDummy$x5StarReviews <- NULL
 NoWarrDummy$ProductNum <- NULL
+
 
 newDummy$BestSellersRank <- NULL
 newDummy$x5StarReviews <- NULL
@@ -59,10 +72,10 @@ OGexisting$x5StarReviews <- NULL
 OGexisting$ProductType <- NULL
 OGexisting$ProductNum <- NULL
 
-OGnew$BestSellersRank <- NULL
-OGnew$x5StarReviews <- NULL
-OGnew$ProductType <- NULL
-OGnew$ProductNum <- NULL
+NewNoWarr$BestSellersRank <- NULL
+NewNoWarr$x5StarReviews <- NULL
+NewNoWarr$ProductType <- NULL
+NewNoWarr$ProductNum <- NULL
 
 NoWarr$BestSellersRank <- NULL
 NoWarr$x5StarReviews <- NULL
@@ -72,8 +85,8 @@ NoWarr$ProductNum <- NULL
 corrOGExist <- cor(OGexisting) 
 corrplot(corrOGExist)
 
-corrOGNew <- cor(OGnew) 
-corrplot(corrOGNew)
+corrNew <- cor(NewNoWarr) 
+corrplot(corrNew)
 
 corrNoWarr <- cor(NoWarr) 
 corrplot(corrNoWarr)
@@ -87,10 +100,6 @@ DecisionTree <- rpart(
   control = rpart.control(minsplit = 2)
   )
 
-par(xpd = NA, mar = rep(0.7, 4)) 
-plot(DecisionTree, compress = TRUE)
-text(DecisionTree, cex = 0.7, use.n = TRUE, fancy = FALSE, all = TRUE)
-
 rpart.plot(DecisionTree) #, box.palette="RdBu")
 
 
@@ -101,69 +110,125 @@ DTDummy <- rpart(
   control = rpart.control(minsplit = 2)
 )
 
-par(xpd = NA, mar = rep(0.7, 4)) 
-plot(DTDummy, compress = TRUE)
-text(DTDummy, cex = 0.7, use.n = TRUE, fancy = FALSE, all = TRUE)
-
 rpart.plot(DTDummy) #, box.palette="RdBu")
+
+
+#################### Variable Weight ###############
+
+set.seed(123)
+train=sample(1:nrow(NoWarr), nrow(NoWarr)*0.75)
+NoWarr.rf=randomForest(Volume ~ . , data = NoWarr, subset = train , importance=TRUE, ntree=500)
+
+test <- NoWarr[-train,]
+NoWarrpred=predict(NoWarr.rf, test)
+
+importance(NoWarr.rf)
+varImpPlot(NoWarr.rf)
 
 
 #################### Linear Model ##################
 
 set.seed(123)
 inTrain <- createDataPartition(
-  y = NoWarr$Volume,
+  y = NoWarrDummy$Volume,
   p = .75,
   list = FALSE)
 
-str(inTrain)
+training <- NoWarrDummy[ inTrain,]
+testing <- NoWarrDummy[-inTrain,]
 
-training <- NoWarr[ inTrain,]
-testing  <- NoWarr[-inTrain,]
 
-nrow(training)
-nrow(testing)
-
+control <- trainControl(method = "repeatedcv", 
+                        number = 10, 
+                        repeats = 3,
+                        classProbs=TRUE)
+##----------------------
 LModel <- list()
-for(i in 1:ncol(training)){
+for(i in 12:ncol(training)){
   if(is.numeric(training[,i])){
-    LinearModel1 <- lm(Volume ~ 0+training[,i], training)
-    metrics <- postResample(LinearModel1)
-    metrics.acum <- cbind(metrics.acum, metrics)
+    LinearModel1 <- train(Volume ~ 0+training[,i], 
+                          data=training,
+                          method="lm",
+                          tuneLength=10
+                          #trControl=control
+                          )
+    PredLM1 <- predict(LinearModel1, testing)
+    metrics <- postResample(PredLM1, testing)
+    #metrics.acum <- cbind(metrics.acum, metrics)
 }
 }
 
+#RFmodel <- list()
+#for(i in 12:ncol(training)){
+ # if(is.numeric(training[,i])){
+    RFmodel <- train(Volume ~ x4StarReviews+PositiveServiceReview, 
+                          data=training,
+                          method="rf",
+                          tuneLength=10,
+                          trControl=control
+    )
+    PredRF <- predict(RFmodel, testing)
+    RFmetrics <- postResample(PredRF, testing)
+    RFmetrics.acum <- cbind(metrics.acum, metrics)
+  #}
+#}
 
-LModel <- list()
-for(i in 1:ncol(training)){
-  if(is.numeric(training[,i])){
-    LinearModel <- lm(Volume ~ 0+training[,i], training)
-    #fit <- train(brand~salary_bin+age_bin, data=training, method="rf", 
-    #            metric="Kappa", tuneLength=10, trControl=fitControl, 
-    #           ntree=ntree)
-    #key <- toString(ntree) 
+##------------
+
     
-    LMmodel[[i]] <- LinearModel
-    names(LMmodel)[i] <- colnames(existing[i])
+  # One Variable #  
+temp <- names(training[,1:(ncol(training)-1)]) 
+metrics.acumLM1 <-  c()   
+
+for(i in 12:(ncol(training)-1)){
+  if(is.numeric(training[,i])){
+    LinearModel1 <- lm(as.formula(paste(c("Volume ~ 0+", temp[i]))), training)
+    PredLM1 <- predict(LinearModel1, testing)
+    metricsLM1<-postResample(PredLM1, testing$Volume)
+    metrics.acumLM1<-cbind(metrics.acumLM1, metricsLM1)
   }
 }
 
+#names(metrics.acumLM1)[,1:ncol(metrics.acumLM1)] <- colnames(training[1:(ncol(training)-1)])
 
+
+PredictionModels <- function(VBLEpredicted, VBLEnvariables){
+  
+  LModel <- train(as.formula(paste(c(VBLEpredicted, "~ 0+", temp[i]))), training, method=VBLEmethod)
+}
+
+
+metrics.acumRF <-  c()
+#for(i in 12:(ncol(training)-1)){
+  #if(is.numeric(training[,i])){
+    RFModel <- train(Volume ~., 
+                     data=training, method="rf", 
+                     ntrees=100, tuneLength=10, trControl=control, importance= TRUE)
+    PredRF <- predict(RFModel, testing)
+    metricsRF<-postResample(PredRF, testing$Volume)
+    metrics.acumRF<-cbind(metrics.acumRF, metricsRF)
+    importance(PredRF)
+#  }
+#}
+
+
+# Two Variables #
+temp <- names(training[,1:(ncol(training)-1)]) 
+metrics.acumLM2 <-  c()   
 set.seed(123)
-
 LMmodel2 <- list()
-c <- c()
-for(i in 1:ncol(NoWarr)){
-  for(j in i:ncol(NoWarr){
-  if(is.numeric(NoWarr[,i])){
-    LinearModel2 <- lm(Volume ~ 0+NoWarr[,i]+NoWarr[,j], NoWarr)
-    c <- c+1
-    LMmodel2[[c]] <- LinearModel2
-    names(LMmodel2)[c] <- colnames(existing[i])+colnames(existing[j])
+for(i in 12:ncol(training)){
+  for(j in i:ncol(training)){
+  if(is.numeric(training[,i])){
+    LinearModel2 <- lm(as.formula(paste(c("Volume ~ 0+", temp[i],temp[j]))), training)
+    PredLM2 <- predict(LinearModel2, testing)
+    metricsLM2<-postResample(PredLM2, testing$Volume)
+    metrics.acumLM2<-cbind(metrics.acumLM2, metricsLM2)
   }
  }
 }
 
+predict(LinearModel2, testing)
 <-postResample()
 <-cbind()
 
